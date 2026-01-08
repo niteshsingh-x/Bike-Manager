@@ -82,6 +82,7 @@
   function login() {
     auth.signInWithEmailAndPassword(email.value, password.value)
       .catch(() => auth.createUserWithEmailAndPassword(email.value, password.value));
+    console.log("jj")
   }
 
   function logout() {
