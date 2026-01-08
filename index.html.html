@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bike Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; background:#111; color:#eee; margin:0; padding:20px; }
+    h1,h2 { text-align:center; }
+    .card { background:#1c1c1c; padding:16px; border-radius:8px; margin-bottom:16px; }
+    input, textarea, button { width:100%; padding:8px; margin-top:6px; background:#2a2a2a; color:#fff; border:none; border-radius:4px; }
+    button { background:#ff9800; font-weight:bold; cursor:pointer; }
+    button:hover { background:#ffa726; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { border-bottom:1px solid #333; padding:8px; font-size:14px; }
+    #app { display:none; }
+  </style>
+</head>
+<body>
+
+<h1>Bike Manager</h1>
+
+<div id="login" class="card">
+  <h2>Login / Register</h2>
+  <input id="email" placeholder="Email" />
+  <input id="password" type="password" placeholder="Password" />
+  <button onclick="login()">Login / Register</button>
+</div>
+
+<div id="app">
+  <div class="card">
+    <h2>Add Bike</h2>
+    <input id="bikeName" placeholder="Bike Name" />
+    <textarea id="engine" placeholder="Engine Specs"></textarea>
+    <button onclick="addBike()">Save Bike</button>
+  </div>
+
+  <div class="card">
+    <h2>Your Bikes</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Engine</th></tr></thead>
+      <tbody id="bikeList"></tbody>
+    </table>
+  </div>
+
+  <button onclick="logout()">Logout</button>
+</div>
+
+<script>
+  // 🔥 FIREBASE CONFIG — REPLACE WITH YOURS
+  const firebaseConfig = {
+    apiKey: "AIzaSyAcA5Hacbb4Ywlzcq-PuRwLV7DdRldkgpY",
+    authDomain: "bike-detail-manager.firebaseapp.com",
+    projectId: "bike-detail-manager",
+    storageBucket: "bike-detail-manager.firebasestorage.app",
+    messagingSenderId: "898307646280",
+    appId: "1:898307646280:web:7164955e1a29e1a419497d"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  auth.onAuthStateChanged(user => {
+    if (user) {
+      login.style.display = 'none';
+      app.style.display = 'block';
+      loadBikes();
+    } else {
+      login.style.display = 'block';
+      app.style.display = 'none';
+    }
+  });
+
+  function login() {
+    auth.signInWithEmailAndPassword(email.value, password.value)
+      .catch(() => auth.createUserWithEmailAndPassword(email.value, password.value));
+  }
+
+  function logout() {
+    auth.signOut();
+  }
+
+  function addBike() {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    db.collection('bikes').add({
+      uid: user.uid,
+      name: bikeName.value,
+      engine: engine.value,
+      created: new Date()
+    });
+
+    bikeName.value = '';
+    engine.value = '';
+  }
+
+  function loadBikes() {
+    const user = auth.currentUser;
+    db.collection('bikes').where('uid', '==', user.uid)
+      .onSnapshot(snap => {
+        bikeList.innerHTML = '';
+        snap.forEach(doc => {
+          const b = doc.data();
+          bikeList.innerHTML += `<tr><td>${b.name}</td><td>${b.engine}</td></tr>`;
+        });
+      });
+  }
+</script>
+
+</body>
+</html>
