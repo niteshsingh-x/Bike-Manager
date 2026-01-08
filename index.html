@@ -5,11 +5,10 @@
   <title>Bike Manager</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Firebase SDKs -->
+  <!-- Firebase SDKs (Compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 
   <style>
     body { font-family: Arial, sans-serif; background:#111; color:#eee; margin:0; padding:20px; }
@@ -21,6 +20,8 @@
     table { width:100%; border-collapse:collapse; }
     th,td { border-bottom:1px solid #333; padding:8px; font-size:14px; }
     #app { display:none; }
+    .error { color:#ff5252; margin-top:8px; font-size:13px; }
+    .info  { color:#81c784; margin-top:8px; font-size:13px; }
   </style>
 </head>
 <body>
@@ -29,9 +30,10 @@
 
 <div id="login" class="card">
   <h2>Login / Register</h2>
-  <input id="email" placeholder="Email" />
-  <input id="password" type="password" placeholder="Password" />
-  <button onclick="login()">Login / Register</button>
+  <input id="email" type="email" placeholder="Email" autocomplete="email" />
+  <input id="password" type="password" placeholder="Password (min 6 chars)" autocomplete="current-password" />
+  <button id="loginBtn">Login / Register</button>
+  <div id="loginMsg" class="error"></div>
 </div>
 
 <div id="app">
@@ -39,7 +41,8 @@
     <h2>Add Bike</h2>
     <input id="bikeName" placeholder="Bike Name" />
     <textarea id="engine" placeholder="Engine Specs"></textarea>
-    <button onclick="addBike()">Save Bike</button>
+    <button id="saveBikeBtn">Save Bike</button>
+    <div id="bikeMsg" class="info"></div>
   </div>
 
   <div class="card">
@@ -50,11 +53,11 @@
     </table>
   </div>
 
-  <button onclick="logout()">Logout</button>
+  <button id="logoutBtn">Logout</button>
 </div>
 
 <script>
-  // 🔥 FIREBASE CONFIG — REPLACE WITH YOURS
+  // Your Firebase config
   const firebaseConfig = {
     apiKey: "AIzaSyAcA5Hacbb4Ywlzcq-PuRwLV7DdRldkgpY",
     authDomain: "bike-detail-manager.firebaseapp.com",
@@ -66,55 +69,136 @@
 
   firebase.initializeApp(firebaseConfig);
   const auth = firebase.auth();
-  const db = firebase.firestore();
+  const db   = firebase.firestore();
+
+  const loginDiv    = document.getElementById('login');
+  const appDiv      = document.getElementById('app');
+  const emailInput  = document.getElementById('email');
+  const passInput   = document.getElementById('password');
+  const loginBtn    = document.getElementById('loginBtn');
+  const loginMsg    = document.getElementById('loginMsg');
+  const bikeNameInp = document.getElementById('bikeName');
+  const engineInp   = document.getElementById('engine');
+  const saveBikeBtn = document.getElementById('saveBikeBtn');
+  const bikeMsg     = document.getElementById('bikeMsg');
+  const bikeListTbody = document.getElementById('bikeList');
+  const logoutBtn   = document.getElementById('logoutBtn');
+
+  let bikesUnsub = null;
 
   auth.onAuthStateChanged(user => {
     if (user) {
-      login.style.display = 'none';
-      app.style.display = 'block';
-      loadBikes();
+      loginDiv.style.display = 'none';
+      appDiv.style.display = 'block';
+      loginMsg.textContent = '';
+      startBikeListener(user.uid);
     } else {
-      login.style.display = 'block';
-      app.style.display = 'none';
+      appDiv.style.display = 'none';
+      loginDiv.style.display = 'block';
+      stopBikeListener();
+      bikeListTbody.innerHTML = '';
     }
   });
 
-  function login() {
-    auth.signInWithEmailAndPassword(email.value, password.value)
-      .catch(() => auth.createUserWithEmailAndPassword(email.value, password.value));
-    console.log("jj")
+  async function handleLogin() {
+    loginMsg.textContent = '';
+    const email = emailInput.value.trim();
+    const pass  = passInput.value.trim();
+
+    if (!email || !pass) {
+      loginMsg.textContent = 'Please enter email and password.';
+      return;
+    }
+    if (pass.length < 6) {
+      loginMsg.textContent = 'Password must be at least 6 characters.';
+      return;
+    }
+
+    try {
+      await auth.signInWithEmailAndPassword(email, pass);
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        try {
+          await auth.createUserWithEmailAndPassword(email, pass);
+        } catch (regErr) {
+          loginMsg.textContent = regErr.message || 'Registration failed.';
+        }
+      } else {
+        loginMsg.textContent = err.message || 'Login failed.';
+      }
+    }
   }
 
-  function logout() {
-    auth.signOut();
-  }
-
-  function addBike() {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    db.collection('bikes').add({
-      uid: user.uid,
-      name: bikeName.value,
-      engine: engine.value,
-      created: new Date()
+  function handleLogout() {
+    auth.signOut().catch(err => {
+      alert('Logout error: ' + (err.message || err));
     });
-
-    bikeName.value = '';
-    engine.value = '';
   }
 
-  function loadBikes() {
+  async function handleAddBike() {
+    bikeMsg.textContent = '';
     const user = auth.currentUser;
-    db.collection('bikes').where('uid', '==', user.uid)
+    if (!user) {
+      bikeMsg.textContent = 'Please login again.';
+      return;
+    }
+
+    const name   = bikeNameInp.value.trim();
+    const engine = engineInp.value.trim();
+
+    if (!name) {
+      bikeMsg.textContent = 'Bike name is required.';
+      return;
+    }
+
+    try {
+      await db.collection('bikes').add({
+        uid: user.uid,
+        name,
+        engine,
+        created: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      bikeNameInp.value = '';
+      engineInp.value   = '';
+      bikeMsg.textContent = 'Bike saved.';
+    } catch (err) {
+      bikeMsg.textContent = err.message || 'Failed to save bike.';
+    }
+  }
+
+  function startBikeListener(uid) {
+    stopBikeListener();
+    bikesUnsub = db.collection('bikes')
+      .where('uid', '==', uid)
+      .orderBy('created', 'desc')
       .onSnapshot(snap => {
-        bikeList.innerHTML = '';
+        bikeListTbody.innerHTML = '';
         snap.forEach(doc => {
           const b = doc.data();
-          bikeList.innerHTML += `<tr><td>${b.name}</td><td>${b.engine}</td></tr>`;
+          const tr = document.createElement('tr');
+          const tdName = document.createElement('td');
+          const tdEngine = document.createElement('td');
+          tdName.textContent = b.name || '';
+          tdEngine.textContent = b.engine || '';
+          tr.appendChild(tdName);
+          tr.appendChild(tdEngine);
+          bikeListTbody.appendChild(tr);
         });
+      }, err => {
+        bikeMsg.textContent = err.message || 'Failed to load bikes.';
       });
   }
+
+  function stopBikeListener() {
+    if (typeof bikesUnsub === 'function') {
+      bikesUnsub();
+      bikesUnsub = null;
+    }
+  }
+
+  loginBtn.addEventListener('click', handleLogin);
+  logoutBtn.addEventListener('click', handleLogout);
+  saveBikeBtn.addEventListener('click', handleAddBike);
 </script>
 
 </body>
